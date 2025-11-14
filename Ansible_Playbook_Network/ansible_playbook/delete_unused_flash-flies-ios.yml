@@ -1,0 +1,38 @@
+---
+- name: Delete unused flash files and leave the running image
+  hosts: Test
+  gather_facts: false
+  tasks:
+    - name: Get the current image file name
+      ios_command:
+        commands:
+          - show version
+      register: result
+
+    - name: Extract running image from show version output
+      set_fact:
+        running_image: "{{ result.stdout[0] | regex_search('image file is (.*)', '\\1') }}"
+
+    - name: Get list of files in flash storage
+      ios_command:
+        commands:
+          - "dir flash:"
+      register: flash_files
+
+    - name: Delete unused files from flash storage (with expect)
+      expect:
+        command: software clean
+        responses:
+          'Are you sure you want to continue? (yes/no)': 'yes'
+      register: clean_result
+      when: flash_files is defined
+
+    - name: Show remaining files on flash
+      ios_command:
+        commands:
+          - "dir flash:"
+      register: remaining_files
+
+    - name: Display remaining files
+      debug:
+        msg: "Remaining files on flash: {{ remaining_files.stdout_lines }}"

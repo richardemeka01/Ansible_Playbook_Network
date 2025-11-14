@@ -1,0 +1,121 @@
+name: "Deploy Terraform"
+
+on:
+  workflow_call:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  terraform_pr:
+    name: "terraform_pr"
+    runs-on: self-hosted
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    environment: pr
+    steps:
+      - name: Checkout
+        id: chkout
+        uses: actions/checkout@v3
+
+      - uses: jwalton/gh-find-current-pr@v1
+        if: github.event_name == 'push'
+        id: get_pr
+        with:
+          state: closed
+
+      - run: echo "Your PR is ${PR}"
+        if: steps.get_pr.outcome == 'success' && steps.get_pr.outputs.number
+        env:
+          PR: ${{ steps.get_pr.outputs.pr }}
+
+      - name: Setup Terraform
+        id: tf_setup
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Version
+        id: tf_ver
+        run: terraform -v
+
+      - name: Terraform Format
+        id: tf_fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        id: tf_init
+        run: terraform init -upgrade -input=false
+        env:
+          TF_WORKSPACE: ${{ vars.TF_WORKSPACE}}
+
+      - name: Terraform Validate
+        id: tf_val
+        run: terraform validate
+        env:
+          TF_WORKSPACE: ${{ vars.TF_WORKSPACE}}
+
+      - name: Terraform Plan
+        id: tf_plan
+        run: |
+          terraform plan -var-file=".tfvars/pr.tfvars" -no-color -input=false -out=plan.tmp
+          terraform show -no-color plan.tmp >${GITHUB_WORKSPACE}/plan.out
+        env:
+          TF_WORKSPACE: ${{ vars.TF_WORKSPACE}}
+
+      - uses: actions/github-script@v6
+        id: ghsc
+        if: github.event_name == 'pull_request'
+        env:
+          PLAN: "terraform\n${{ steps.tf_plan.outputs.stdout }}"
+          TF_WORKSPACE: ${{ vars.TF_WORKSPACE}}
+        with:
+          script: |
+            const fs = require('fs')
+            const run_url = process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID
+            const run_link = '<a href="' + run_url + '">Actions</a>.'
+            const plan_file = fs.readFileSync('plan.out', 'utf8')
+            const MAX_PLAN_LENGTH = 100000;
+            const plan = plan_file.length > MAX_PLAN_LENGTH ? plan_file.toString().substring(0, MAX_PLAN_LENGTH) + " ..." : plan_file
+            const truncated_message = plan_file.length > MAX_PLAN_LENGTH ? "Output is too long and was truncated. You can read full Plan in " + run_link + "<br /><br />" : ""
+            core.setOutput('plan', `${plan}`);
+            const output = `#### Terraform Format and Style 🖌\`${{ steps.tf_fmt.outcome }}\`
+            #### Terraform Initialization ⚙️\`${{ steps.tf_init.outcome }}\`
+            #### Terraform Validation 🤖\`${{ steps.tf_val.outcome }}\`
+            #### Terraform Plan 📖\`${{ steps.tf_plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`\n
+            ${plan}
+            \`\`\`
+
+            </details>
+            ${truncated_message}
+
+            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Terraform Plan Status
+        id: tf_stat
+        if: steps.tf_plan.outcome == 'failure'
+        run: exit 1
+
+      - name: Terraform Apply
+        if: github.event_name == 'push'
+        run: terraform apply -var-file=".tfvars/pr.tfvars" -auto-approve -input=false
+        env:
+          TF_WORKSPACE: ${{ vars.TF_WORKSPACE }}
+
+    outputs:
+      tf_plan: ${{ steps.tf_plan.outputs.stdout }}
+      tf_plan_clean: ${{ steps.ghsc.outputs.planstr }}
