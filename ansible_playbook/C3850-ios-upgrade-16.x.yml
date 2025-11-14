@@ -1,0 +1,252 @@
+---
+# Ansible Playbook to Upgreade Cisco IOS
+
+- name: Upgrade CISCO IOS
+  hosts: Test
+
+  vars:
+    upgrade_ios_version: 16.12.11
+    new_ios_file_name: cat3k_caa-universalk9.16.12.11.SPA.bin
+    ansible_command_timeout: 1200
+  
+  tasks:
+    - name: CHECK CURRENT VERSION
+      ios_facts:
+
+    - debug:
+        msg:
+        - "Current version is {{ansible_net_version }}"
+        - "Upgrade image is 16.12.11"
+
+    - debug:
+        msg:
+        - "Image is not compliant and will be upgraded"
+
+      when: ansible_net_version != upgrade_ios_version
+
+## Create backup folder for today
+
+- hosts: localhost
+
+  tasks:
+    - name: Get ansible date/time facts
+      setup:
+       filter: "ansible_date_time"
+       gather_subset: "!all"
+
+    - name: Store DTG as fact
+      set_fact:
+       DTG: "{{ ansible_date_time.date }}"
+
+    - name: Create Directory {{hostvars.localhost.DTG}}
+      file:
+       path: /home/a01800215/ansible/Cisco/Backups/Cisco_backup/{{hostvars.localhost.DTG}}
+       state: directory
+  run_once: true
+
+
+# Enable SCP on Cisco IOS device
+
+- name: Enable SCP on Cisco IOS device
+  hosts: Test
+  gather_facts: no
+  connection: network_cli
+  tasks:
+    - name: Enable SCP server
+      ios_config:
+        lines:
+          - ip scp server enable
+        save_when: modified  # Ensures config is saved only if modified
+      register: scp_config_result
+
+    - name: Verify SCP server status
+      ios_command:
+        commands:
+          - show run | include ip scp server
+      register: verify_scp
+
+    - name: Display verification output
+      debug:
+        msg: "{{ verify_scp.stdout_lines }}"
+
+    - name: Save running configuration to startup-config
+      ios_command:
+        commands:
+          - write memory
+
+
+
+
+
+############# # Clean up all old boot files 
+
+    - name: Run the install remove inactive command
+      ios_command:
+        commands:
+          - "install remove inactive"
+        prompt:  'Do you want to proceed with the deletion? [yes/no]:'
+        answer: 'y'
+        timeout: 180  # Increase timeout for cleaning operation
+      register: remove_inactive_output
+
+
+    - name: Debug remove_inactive_output to inspect the command result
+      debug:
+        var: remove_inactive_output
+
+ 
+    - name: Notify if no files were marked for deletion
+      debug:
+        msg: "No files were marked for deletion."
+      when: files_to_delete | length == 0
+
+
+
+
+## Copy New IOS from FTP (172.28.199.42) and do MD5 Checksum
+- hosts: Test
+
+  tasks:
+   - name: Copy New IOS Image From FTP (172.28.199.42)
+     cli_command:
+        command: 'copy ftp://Cisco:Cisco@172.28.199.42/cat3k_caa-universalk9.16.12.11.SPA.bin flash:cat3k_caa-universalk9.16.12.11.SPA.bin'
+        check_all: True 
+        prompt:
+          - 'Destination filename'
+        answer:
+          - 'cat3k_caa-universalk9.16.12.11.SPA.bin'
+     vars: 
+       ansible_command_timeout: 1200
+
+
+
+
+
+## Backup Running Config 
+
+
+- hosts: Test
+
+  tasks:
+   - name: Backup Running Config  
+     ios_command:
+       commands: show run  
+     register: config
+
+   - name: Save output to /home/a01800215/ansible/Cisco/Backups/Cisco_backup/
+     copy:
+       content: "{{config.stdout[0]}}"
+       dest: "/home/a01800215/ansible/Cisco/Backups/Cisco_backup/{{hostvars.localhost.DTG}}/{{ inventory_hostname }}-{{hostvars.localhost.DTG}}-config.txt"
+
+## SAVE the Running Config 
+
+   - name: Save running config 
+     ios_config:
+       save_when: always 
+
+       
+## Run MD5 checksum verification
+
+
+
+
+   - name: Run MD5 checksum verification
+     ios_command:
+       commands: 
+         - "verify /md5 flash:cat3k_caa-universalk9.16.12.11.SPA.bin"
+       timeout: 120  
+     register: md5_output
+     ignore_errors: yes
+
+
+   - name: Validate MD5 checksum
+     debug:
+       msg: |
+         MD5 checksum result: {{ md5_output.stdout[0] }}
+         Expected checksum: 035288e3dbe7a59760502907cad67142
+     failed_when: '"035288e3dbe7a59760502907cad67142" not in md5_output.stdout[0]'
+     when: md5_output is defined
+
+
+###############################################################################################################################################
+
+
+
+
+
+## Change the Boot Variable to the new image 
+
+   - name: Change Boot Variable to new image 
+     ios_config: 
+       commands: 
+         - "boot system switch all flash:cat3k_caa-universalk9.16.12.11.SPA.bin"
+       save_when: always 
+
+
+# Installing image for ver 16.x.y 
+
+   - name: Installing image for ver 16.x.y
+     ios_command:
+       commands:
+         - command: "request platform software package install switch all file flash:cat3k_caa-universalk9.16.12.11.SPA.bin retain-source-file new auto-copy"
+           prompt: save configuration
+           answer: y
+     register: upgrade_results
+     failed_when: "'FAILED' in upgrade_results.stdout"
+
+   - debug: var=upgrade_results.stdout
+
+   - debug: var=upgrade_results.stdout
+     when: "'FAILED' in upgrade_results.stdout"
+
+## Reload the device 
+
+   - name: Reload the Device 
+     cli_command: 
+       command: reload
+       prompt: 
+         - confirm
+       answer: 
+         - 'y'
+
+
+## Wait for Reachability to the device 
+
+   - name: Wait for device to come back online
+     wait_for:
+       host: "{{ inventory_hostname }}"
+       port: 22
+       timeout: 600
+       delay: 60
+       sleep: 15
+     delegate_to: localhost
+
+
+
+## Check current image 
+
+   - name: Check Image Version      
+     ios_facts:
+
+   - debug: 
+       msg: 
+       - "Current version is {{ ansible_net_version }}"
+
+   - name: ASSERT THAT THE IOS VERSION IS CORRECT
+   
+     vars: 
+       upgrade_ios_version: 16.12.11
+
+     assert:
+       that:
+         - upgrade_ios_version == ansible_net_version
+   - debug: 
+       msg: 
+       - "Software Upgrade has been completed"
+
+
+
+   - name: Save running configuration to startup-config
+     ios_command:
+       commands:
+         - write memory

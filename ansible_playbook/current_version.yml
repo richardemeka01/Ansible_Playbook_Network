@@ -1,0 +1,24 @@
+---
+# Ansible Playbook to Upgreade Cisco IOS
+
+- name: Upgrade CISCO IOS
+  hosts: 3850_SWITCHES
+
+  vars:
+    upgrade_ios_version: XXXXXXXXXX
+  
+  tasks:
+    - name: CHECK CURRENT VERSION
+      ios_facts:
+
+    - debug:
+        msg:
+        - "Current version is {{ansible_net_version }}"
+        #- "Upgrade image is XXXXXXXX"
+
+    - debug:
+        msg:
+        - "Image is not compliant and will be upgraded"
+
+      when: ansible_net_version != upgrade_ios_version
+
