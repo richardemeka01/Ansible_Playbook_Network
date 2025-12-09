@@ -3,10 +3,16 @@ name: xrd
 
 topology:
   nodes:
+    srl:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux
+      startup-config: srl.cfg
+
+
     xrd:
       kind: cisco_xrd
       image: xrd:vrtrX86.25.2.2
   
 
   links:
-    - endpoints: ["xrd:Gi0-0-0-0"]
+    - endpoints: ["srl:e1-1", "xrd:Gi0-0-0-0"]
