@@ -1,0 +1,59 @@
+---
+- name: Allow HTTPS bidirectionally between trust and untrust
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  vars_files:
+    - vault.yml   # Load encrypted credentials
+
+  vars:
+    panos_host: "192.0.2.10"
+    src_zone: "trust"
+    dst_zone: "untrust"
+
+  tasks:
+    - name: Allow HTTPS from trust to untrust
+      paloaltonetworks.panos.panos_security_rule:
+        provider:
+          ip_address: "{{ panos_host }}"
+          username: "{{ panos_username }}"
+          password: "{{ panos_password }}"
+        rule_name: "ALLOW-HTTPS-{{ src_zone }}-to-{{ dst_zone }}"
+        description: "Allow HTTPS (ssl app) from {{ src_zone }} to {{ dst_zone }}"
+        source_zone: ["{{ src_zone }}"]
+        destination_zone: ["{{ dst_zone }}"]
+        source_ip: ["any"]
+        destination_ip: ["any"]
+        application: ["ssl"]
+        service: ["application-default"]
+        action: "allow"
+        disable: false
+        log_setting: "default"
+        state: "present"
+
+    - name: Allow HTTPS from untrust to trust
+      paloaltonetworks.panos.panos_security_rule:
+        provider:
+          ip_address: "{{ panos_host }}"
+          username: "{{ panos_username }}"
+          password: "{{ panos_password }}"
+        rule_name: "ALLOW-HTTPS-{{ dst_zone }}-to-{{ src_zone }}"
+        description: "Allow HTTPS (ssl app) from {{ dst_zone }} to {{ src_zone }}"
+        source_zone: ["{{ dst_zone }}"]
+        destination_zone: ["{{ src_zone }}"]
+        source_ip: ["any"]
+        destination_ip: ["any"]
+        application: ["ssl"]
+        service: ["application-default"]
+        action: "allow"
+        disable: false
+        log_setting: "default"
+        state: "present"
+
+    - name: Commit candidate config
+      paloaltonetworks.panos.panos_commit:
+        provider:
+          ip_address: "{{ panos_host }}"
+          username: "{{ panos_username }}"
+          password: "{{ panos_password }}"

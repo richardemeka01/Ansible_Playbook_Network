@@ -1,0 +1,7 @@
+# inventory.yml
+all:
+  hosts:
+    paloalto-fw:
+      ansible_host: 192.168.1.1
+      ansible_user: admin
+      ansible_password: "{{ vault_fw_password }}"

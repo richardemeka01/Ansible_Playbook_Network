@@ -9,7 +9,7 @@
     - name: new_password
       prompt: "Please enter new password "
       private: true
-Ansible_for_Network_Engineer/11_Deep_Dive_into_Lookup_and_Callback_Plugins  tasks:
+  Ansible_for_Network_Engineer/11_Deep_Dive_into_Lookup_and_Callback_Plugins  tasks:
     - name: Configure new username
       cisco.ios.ios_config:
         lines:
