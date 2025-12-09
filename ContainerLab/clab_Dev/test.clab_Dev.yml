@@ -1,0 +1,12 @@
+# topology documentation: http://containerlab.dev/lab-examples/srl-ceos/
+name: xrd
+
+topology:
+  nodes:
+    xrd:
+      kind: cisco_xrd
+      image: xrd:vrtrX86.25.2.2
+  
+
+  links:
+    - endpoints: ["xrd:Gi0-0-0-0"]
