@@ -12,7 +12,7 @@ topology:
     xrd:
       kind: cisco_xrd
       image: xrd:vrtrX86.25.2.2
-      startup-config: xrd.cfg
+      startup-config: /home/richard/Automation/ContainerLab/configs/xrd.cfg
   
 
   links:
